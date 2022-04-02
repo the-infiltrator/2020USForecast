@@ -1,5 +1,2 @@
-# starter_folder
+# Forecasting the 2020 United States Presidential Election
 
-This repo....
-
-It is organised as follows...
