@@ -1,12 +1,11 @@
 ---
-title: "My title"
-subtitle: "My subtitle if needed"
+title: "Projecting a Close Call Victory for Biden in the 2020 US Presidential Elections"
+subtitle: "51% Majority Vote, 274 Electoral College Votes and a bit of Luck"
 author: 
-  - First author
-  - Another author
-thanks: "Code and data are available at: LINK."
+  - Nayan Saxena
+thanks: "Code and data are available at: https://github.com/the-infiltrator/2020USForecast"
 date: "`r format(Sys.time(), '%d %B %Y')`"
-abstract: "First sentence. Second sentence. Third sentence. Fourth sentence."
+abstract: "The 2020 US Presidential elections took place not only during a global pandemic but also after several major events like the \"Black lives matter\" movement. They also occurred after a shocking 2016 US presidential outcome where several polling based models incorrectly predicted the outcome of the election--revealing several issues with statistical approaches to election forecasting. In this paper we attempt to forecast the 2020 US Presidential elections using multilevel-regression with post-stratification using survey data collected prior to the election. Our model predicts an expected 51% +-6% chance of a majority vote and 274 electoral college votes for Joe Biden designating a clear victory for the Democratic presidential nominee across both fronts."
 output:
   bookdown::pdf_document2
 toc: FALSE
@@ -14,94 +13,677 @@ bibliography: references.bib
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, dev="cairo_pdf", fig.align = "center", root.dir = "../")
+library(statebins)
+library(broom)
+library(kableExtra)
+library(here)
+library(brms)
+library(rstan)
+library(tidybayes)
+library(DeclareDesign)
+library(arm)
+library(rstanarm)
+library(lme4)
+library("glmmTMB")
+library(Pmisc)
+library(sjPlot)
+library(modelsummary)
+library(ggthemes)
+library(fiftystater)
+library(bayesplot)
+library(gridExtra)
+library(ggpubr)
+library(dplyr)
+library(ggplot2)
 library(tidyverse)
 library(palmerpenguins)
+library(usmap)
+library(scales)
+```
+
+```{r dataload, include=FALSE}
+
+# 
+# read in the polling data
+nationscape_data <- read.csv("data/polling_data.csv")
+
+# read in post-strat data
+poststrat_data <- read.csv("data/us_poststrat.csv")
+
+
+
+poststrat_data_cells <- 
+  poststrat_data |> 
+  group_by(stateicp, gender, age_group, education_level,race, hispanic, household_income) |> 
+  count()
+
+poststrat_data_cells <- 
+  poststrat_data_cells |> 
+  group_by(stateicp) |> 
+  mutate(prop = n/sum(n)) |> 
+  ungroup()
+
+
 ```
 
 # Introduction
 
-You can and should cross-reference sections and sub-sections. For instance, Section \@ref(data). R Markdown automatically makes the sections lower case and adds a dash to spaces to generate labels, for instance, Section \@ref(first-discussion-point). 
+As the COVID-19 pandemic swept through the United States in early 2020,  a challenging contest between the Republicans and Democrats was taking place for the upcoming 2020 US Presidential Election.  This was set against the somber backdrop of the various "Black Lives Matter" protests caused due to the untimely death of George Floyd and hate crimes against Asian-Americans which had a polarising effect on the population. Given these tumultuous times, the polling data prior to the election alongside the public perception of each candidate were more volatile than usual, with different events and occurrences altering each candidate's image. The main focus of our paper would be to quantify some of this uncertainty and capture the public sentiment through statistical modeling approaches which have been used to predict electoral outcomes in the past.
 
+When it comes to statistical modeling approaches, the 2020 election was unique in the sense that the previously held 2016 presidential election revealed several inaccuracies and hidden biases within the polling data which failed to capture a large fraction of supporters of Donald Trump [@mercer20162016]. This led to inaccurate predictions at the time, with most polling data not truly encapsulating the public opinion toward Donald Trump. With Trump's eventual 2016 victory, it has eventually been established that statistical machine learning models still performed better at capturing the election outcome as compared to simpler inferences drawn through polling data [@tien2016forecasting]. 
 
+Motivated by this superlative performance, we focus our efforts through this paper on creating a parsimonious model that captures the 2020 election sentiment. We use multi-level regression with post-stratification 
+(MRP) as the primary method, with a relatively simple logistic regression model that is trained to predict the likelihood of Joe Biden winning the 2020 election.  This method employs two datasets: a non-representative dataset to fit the model, and then a representative dataset to weigh the model prediction outcomes. This model has historically been a popular choice to model voter behavior including election turnout [@ghitza2013deep], and forecast elections with particularly non-representative polling data [@xbox]. Furthermore, MRP models have in the past successfully predicted the 2017 UK general election results [@wong_2019], and might help us more accurately capture the true picture given that trends leading up to the 2020 US election demonstrate a close call between the candidates.
+
+Since MRP uses two datasets we source our model training data or non-representative sample from the Democracy Fund+ UCLA Nationscape survey of US citizens [@surveydata]. The representative sample or post-stratification dataset is derived from the 2019 American Community Survey [@poststratdata], which is used to weigh the prediction cells for better predictions. Across both datasets and within our model we consider the variables: state, age group, education level, Hispanic, race, and household income. This study extensively uses the R programming language [@citeR] and Tidyverse packages [@citetidyverse]  to fit the model and engineer the respective features. 
+
+Inference based on post-stratification data from our MRP model reveals an expected 51% $\pm$ 6% chance of a majority vote with 274 electoral college votes on average in favor of Joe Biden designating a clear victory for Joe Biden across both fronts. It is important to note here that in 2016 Donald Trump became president based on the electoral college win (votes above 270) which plays a major role in the US electoral process.
+In summary, this paper is organized into 4 major sections with an outline of the datasets used in Section 2;  mathematical detail of the modeling framework in Section 3 along with the model coefficients visualized and provided in the form of a table, and a report on our model predictions in Section 4 for each state compared against the survey data.
 
 # Data
 
-Our data is of penguins (Figure \@ref(fig:bills)).
+In this paper our main modelling approach will be multi-level regression with postratification (MRP) which requires a non-representative dataset to fit the model and then a representative dataset to weigh the model prediction outcomes. To better assess the public sentiment before the elections, we use the Nationscape survey data collected between October 1-7, 2020 which lies about a month before the United States elections. Furthermore, for post-stratification we extract important variables from the IPUMS America Census Service data. 
 
-```{r bills, fig.cap="Bills of penguins", echo = FALSE}
-ggplot(penguins, aes(x = island, fill = species)) +
-  geom_bar(alpha = 0.8) +
-  scale_fill_manual(values = c("darkorange","purple","cyan4"),
-                    guide = FALSE) +
-  theme_minimal() +
-  facet_wrap(~species, ncol = 1) +
-  coord_flip()
+## Feature Selection
+
+For this study we consider prior research to choose common variables across both datasets for consideration. The main variables throughout this study are: state, age group, education level, hispanic, race and household income. Age has been shown to be a major factor in the political inclination of voters with prior work showing a correlation between age and republican sentiments [@desilver2014politics] while other work showing that political ideologies stay relatively consistent over time [@peterson2020people]. Furthermore, while every state has their own political inclination we go further to also look at race as well as if a person identifies as hispanic. Race has been shown to be a major driver historically of political idelogies especially during the 2020 election which are ocurring right after the "Black Lives Matter" movement. The consideration of hispanic identity in our study is important because it has been shown that hispanic people are mostly democractic leaning and have mostly voted for democratic candidates in the past [@11]. Education level is considered because of patterns that emerged after the 2016 election, where the majority of voters did not attend university [@12].
+
+## Survey Data
+
+```{r summplot, fig.cap = "Summary of several important variables present within the survey data",fig.height = 18, fig.width = 15,  }
+
+
+mycols <- c("#3770FC", "#FC5E2B")
+#biden support for each of age, sex, race, income, and education
+age_graph <- nationscape_data %>% 
+  count(age_group, vote_biden) %>% 
+  group_by(age_group) %>% 
+  mutate(total = sum(n),   # proportion of votes in each group
+         prop = 100*n/total, 
+         vote = ifelse(vote_biden == 1, "Biden", "Trump")) %>% 
+  filter(vote != "Trump") %>%   # focus on Biden support 
+  ggplot(aes(x = age_group, group = vote, y = prop)) +
+  geom_point(stat = "identity", color = mycols[1]) + 
+  geom_line(color = mycols[1]) + 
+  scale_y_continuous(limits = c(0,90)) +    # graph configurations 
+  theme_minimal() + 
+  labs(y = "Biden support (%)", title = "Age Group") + 
+  theme(plot.title = element_text(hjust = 0.5),
+         axis.title.x = element_blank(),
+         text = element_text(family = "Avenir", size = 15))
+
+h_graph <- nationscape_data %>% 
+  count(hispanic, vote_biden) %>% # count votes for each candidate
+  group_by(hispanic) %>% 
+  mutate(total = sum(n),   # calculating proportion of votes in each group
+         prop = 100*n/total, # change to percent 
+         vote = ifelse(vote_biden == 1, "Biden", "Trump")) %>% 
+  filter(vote != "Trump") %>%   # focus on Biden support 
+  ggplot(aes(x =  hispanic, group = vote, y = prop)) +
+  geom_point(stat = "identity", color = mycols[1]) + 
+  geom_line(color = mycols[1]) + 
+  scale_y_continuous(limits = c(0,90)) +    # graph configurations 
+  theme_minimal() + 
+  labs(y = "Biden support (%)", title = "Hispanic") + 
+  theme(plot.title = element_text(hjust = 0.5),
+         axis.title.x = element_blank(),
+         text = element_text(family = "Avenir", size = 15))
+
+sex_graph <- nationscape_data %>%    # graph for sex 
+  count(gender, vote_biden) %>% 
+  group_by(gender) %>% 
+  mutate(total = sum(n),
+         prop = 100*n/total,
+         vote = ifelse(vote_biden == 1, "Biden", "Trump")) %>% 
+  filter(vote != "Trump") %>% 
+  ggplot(aes(x = gender, group = vote, y = prop)) +
+  geom_point(stat = "identity", color = mycols[1]) + 
+  geom_line(color = mycols[1]) + 
+  scale_y_continuous(limits = c(0,90)) + 
+  theme_minimal() + 
+  labs(y = "Biden Support (%)",title = "Sex") + 
+  theme(plot.title = element_text(hjust = 0.5),
+         axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+         text = element_text(family = "Avenir", size = 15))
+race_graph <- nationscape_data %>%  # graph for race
+  count(race, vote_biden) %>% 
+  group_by(race) %>% 
+  mutate(total = sum(n),
+         prop = 100*n/total,
+         vote = ifelse(vote_biden == 1, "Biden", "Trump")) %>% 
+  filter(vote != "Trump") %>% 
+  ggplot(aes(x = race, group = vote, y = prop)) +
+  geom_point(stat = "identity", color = mycols[1]) + 
+  geom_line(color = mycols[1]) + 
+  scale_y_continuous(limits = c(0,90)) + 
+  theme_minimal() + 
+  labs(y = "Biden Support (%)", title = "Race") + 
+  theme(plot.title = element_text(hjust = 0.5),
+         axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+         text = element_text(family = "Avenir", size = 15)) +
+  scale_x_discrete(labels=c("Asian/Pacific Islander" = "Asian/PI", "American Indian/Alaska Native" = "Native"))
+
+income_graph <- nationscape_data %>%   # graph for income
+  count(household_income, vote_biden) %>% 
+  group_by(household_income) %>% 
+  mutate(total = sum(n),
+         prop = 100*n/total,
+         vote = ifelse(vote_biden == 1, "Biden", "Trump")) %>% 
+  filter(vote != "Trump") %>% 
+  ggplot(aes(x = household_income, group = vote, y = prop)) +
+  geom_point(stat = "identity", color = mycols[1]) + 
+  geom_line(color = mycols[1]) + 
+  scale_y_continuous(limits = c(0,80)) + 
+  theme_minimal() + 
+  labs(y = "Biden Support (%)", title = "Income") + 
+  theme(plot.title = element_text(hjust = 0.5),
+         axis.title.x = element_blank(),
+         text = element_text(family = "Avenir", size = 12)) +
+  scale_x_discrete(labels=c( 
+                             "Less than $50,000" = "<$50k",
+                             "$50,000 to $99,999" = "$50-100k",
+                             "$100,000 to $149,999" = "$100k-150k",
+                             "$150,000 to $199,999" = "$150k-200k",
+                             "$200,000 to $249,999" = "$200k-250k",
+                             "$250,000 and above" = "$250k+"))
+
+education_graph <- nationscape_data %>%   # graph for education
+  count(education_level, vote_biden) %>% 
+  group_by(education_level) %>% 
+  mutate(total = sum(n),
+         prop = 100*n/total,
+         vote = ifelse(vote_biden == 1, "Biden", "Trump")) %>% 
+  filter(vote != "Trump") %>% 
+  ggplot(aes(x = education_level, group = vote, y = prop)) +
+  geom_point(stat = "identity", color = mycols[1]) + 
+  geom_line(color = mycols[1]) + 
+  scale_y_continuous(limits = c(0,80)) + 
+  theme_minimal() + 
+  labs(y = "Biden Support (%)",title = "Education") + 
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+         text = element_text(family = "Avenir", size = 12))
+# combine these 6 graphs into one
+grid.arrange(age_graph, sex_graph, race_graph, h_graph, income_graph, education_graph, ncol = 2, nrow=3, top = text_grob("Summary of Survey Data Across Several Variables", family = "Avenir", size = 20))
 ```
 
-Talk more about it.
+The primary dataset being used to train the model is the survey data that is sourced from the Democracy Fund+ UCLA Nationscape survey of US citizens [@surveydata] collected in the first week of October 2021. The participants were selected from Lucid, a market research platform, based on various criterias randing from their education, age, gender, income, ethnicity and much more [@surveydata].
 
-Also bills and their average (Figure \@ref(fig:billssssss)). (Notice how you can change the height and width so they don't take the whole page?)
+```{r votea2, message = FALSE,echo = FALSE, warning=FALSE , fig.height = 10, fig.width = 10}
+#Compare the percentage of different age groups voting for either candidate
 
-```{r billssssss, fig.cap="More bills of penguins", echo = FALSE, fig.width=8, fig.height=4}
 
-# This needs to be about the random data tha tI sasmpled?
-ggplot(penguins, aes(x = island, fill = species)) +
-  geom_bar(alpha = 0.8) +
-  scale_fill_manual(values = c("darkorange","purple","cyan4"),
-                    guide = FALSE) +
-  theme_minimal() +
-  facet_wrap(~species, ncol = 1) +
-  coord_flip()
+gnationscape_data<-nationscape_data
+
+
+plotdata1 <- gnationscape_data %>%
+  group_by(gender, vote_biden) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+p1<-ggplot(plotdata1, 
+       aes(x = factor(gender),
+           y = pct,
+           fill = factor(vote_biden))) + 
+    coord_flip() +
+  geom_bar(stat = "identity",
+           position = "fill", alpha=0.7) +
+  scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent) +
+  geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette = "Set1", labels = c("Donald Trump", "Joe Biden")) +
+  labs(y = "Percent", 
+       fill = "2020 Presidential Vote",
+       x = "Gender",       text = element_text(family = "Avenir"))+
+  theme_minimal()
+
+plotdata2 <- gnationscape_data %>%
+  group_by(age_group, vote_biden) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+p2<-ggplot(plotdata2, 
+       aes(x = factor(age_group),
+           y = pct,
+           fill = factor(vote_biden))) + 
+    coord_flip() +
+  geom_bar(stat = "identity",
+           position = "fill" , alpha=0.7) +
+  scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent) +
+  geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette = "Set1", labels = c("Donald Trump", "Joe Biden")) +
+  labs(y = "Percent", 
+       fill = "2020 Presidential Vote",
+       x = "Age Group",       text = element_text(family = "Avenir"))+
+  theme_minimal()
+
+
+#Compare the percentage of different age groups voting for either candidate
+plotdata3 <- gnationscape_data %>%
+  group_by(household_income, vote_biden) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+p3<-ggplot(plotdata3, 
+       aes(x = factor(household_income),
+           y = pct,
+           fill = factor(vote_biden))) + 
+    coord_flip() +
+  geom_bar(stat = "identity",
+           position = "fill" , alpha=0.7) +
+  scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent) +
+  geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette = "Set1", labels = c("Donald Trump", "Joe Biden")) +
+  labs(y = "Percent", 
+       fill = "2020 Presidential Vote",
+       x = "Household Income",       text = element_text(family = "Avenir"))+
+  theme_minimal()
+
+
+plotdata4 <- gnationscape_data %>%
+  group_by(race, vote_biden) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+p4<-ggplot(plotdata4, 
+       aes(x = factor(race),
+           y = pct,
+           fill = factor(vote_biden))) + 
+    coord_flip() +
+  geom_bar(stat = "identity",
+           position = "fill" , alpha=0.7) +
+  scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent) +
+  geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette = "Set1", labels = c("Donald Trump", "Joe Biden")) +
+  labs(y = "Percent", 
+       fill = "2020 Presidential Vote",
+       x = "Race",       text = element_text(family = "Avenir"))+
+  theme_minimal()
+
+plotdata5 <- gnationscape_data %>%
+  group_by(hispanic, vote_biden) %>%
+  summarize(n = n()) %>% 
+  mutate(pct = n/sum(n),
+         lbl = scales::percent(pct))
+p5<-ggplot(plotdata5, 
+       aes(x = factor(hispanic),
+           y = pct,
+           fill = factor(vote_biden))) + 
+    coord_flip() +
+  geom_bar(stat = "identity",
+           position = "fill" , alpha=0.7) +
+  scale_y_continuous(breaks = seq(0, 1, .2), 
+                     label = percent) +
+  geom_text(aes(label = lbl), 
+            size = 3, 
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette = "Set1", labels = c("Donald Trump", "Joe Biden")) +
+  labs(y = "Percent", 
+       fill = "2020 Presidential Vote",
+       x = "Hispanic",       text = element_text(family = "Avenir"))+
+  theme_minimal()
+
+
 ```
 
-Talk way more about it. 
+As observed in Figure \@ref(fig:voteg2), there is a small but noticeable difference in partisanship between male and female voters with around 6% more support for Joe Biden based on the survey.
+
+```{r voteg2, fig.cap="2020 Percentage of Voters by Sex for Each Candidate", message = FALSE, echo = FALSE, warning=FALSE, fig.height = 1.2, fig.width = 7}
+# Compare the percentage of men and women voting for either candidate
+
+p1
+```
+
+Furthermore, when considering different age groups, as seen in Figure \@ref(fig:voteg3) a major difference can be seen between voter sentiment for lower age-groups which are more polarised towards supporting Joe Biden. It should be noted here, that we do not observe a correlation between increasing age and conservative support as noted by some studies. The support for either candidates appears to be almost constant for other age groups except the youngest, where almost approximately 70% of the surveyed people showed support for Joe Biden.
+
+```{r voteg3, fig.cap="2020 Percentage of Voters by Age for Each Candidate", message = FALSE, echo = FALSE, warning=FALSE,fig.height = 1.2, fig.width = 7}
+# Compare the percentage of age group voters for either candidate
+
+p2
+```
 
 
+
+
+When considering race, shown in Figure \@ref(fig:voteg5) we notice strong patterns emerging within the survey data with a very large majority of black and asian respondents showing support for Joe Biden. Amongst the black population almost approximately 90% of the respondents indicated support for Joe Biden alonngside around 75% of the asian people. A common trend seems to be emerging here which shows more democratic support in the 2020 elections by people of other races as well as people who are black and asian. This can be explained as a natural consequence of the "Black Lives Matter" movement of 2020 and the various hate-crimes against Asian people during the Trump presidency.
+
+
+
+
+```{r voteg5, fig.cap="2020 Percentage of Voters by Race for Each Candidate", message = FALSE, echo = FALSE, warning=FALSE, fig.height = 1.2, fig.width = 7}
+# Compare the percentage of people from each race for either candidate
+
+p4
+```
+
+Echoing, a similar sentiment as seen previously in Figure \@ref(fig:voteg5), people identifying as hispanic also showed more support for Joe Biden as compared to otherwise, shown in Figure \@ref(fig:voteg6). The general consensus based on these results is that race and hispanic origin seem to have a significant bearing on the outcome of this election and therefore must be given importance throughout our analysis.
+
+```{r voteg6, fig.cap="2020 Percentage of Voters by Hispanic Identity for Each Candidate", message = FALSE, echo = FALSE, warning=FALSE, fig.height = 1.2, fig.width = 7}
+# Compare the percentage of men and women voting for either candidate
+
+p5
+
+```
+
+
+
+Finally, a detailed summary of survey data can also be seen in Figure \@ref(fig:summplot) which outlines the support for Biden for each of these variables. It should be noted that we also observe an interesting constant trend in terms of candidate support for people coming from different household income brackets. This observation is interesting as income has been shown previously to be a major indicator of partisanship [@peterson2016rich] -- something which is not captured within our survey data.
+
+<!-- \newpage -->
+
+## Post-stratification Data
+
+```{r tableco, out.width = "60%"}
+
+# Code modified from :https://github.com/reb-yang/Forecasting-Election/tree/main/outputs 
+# Modified by Nayan Saxena, original author Rebecca Yang
+
+voter_data<-nationscape_data
+
+age_table <- voter_data %>%   # getting proportions ffor age group from nationscape 
+  rename(level = age_group) %>% 
+  count(level) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = "")) 
+sex_table <-voter_data %>%   # sex proportions 
+  rename(level  = gender) %>% 
+  count(level) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+race_table <- voter_data %>%  # race proportions 
+  rename(level  = race) %>% 
+  count(level) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+
+hispan_table <- voter_data %>%  # race proportions 
+  rename(level  = hispanic) %>% 
+  count(level) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+
+educ_table <- voter_data %>%  # education proportions 
+  rename(level  = education_level) %>% 
+  count(level) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+income_table <- voter_data %>%  # income proportions 
+  rename(level  =  household_income) %>% 
+  count(level) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+tables <- rbind(age_table, sex_table, race_table, hispan_table, educ_table, income_table)  # nationscape proportions 
+
+post_strat_cell_counts=poststrat_data_cells
+
+age_cells <- post_strat_cell_counts %>%  # age proportions from ACS 
+  group_by(age_group) %>%
+  summarise(n = sum(n)) %>%
+  ungroup() %>%
+    rename(level  =  age_group) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+sex_cells <- post_strat_cell_counts %>% # sex proportions 
+  group_by(gender) %>%
+  summarise(n = sum(n)) %>%
+  ungroup() %>%
+    rename(level  =  gender) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+race_cells <- post_strat_cell_counts %>% # race props 
+  group_by(race) %>%
+  summarise(n = sum(n)) %>%
+  ungroup() %>%
+    rename(level  =  race) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+
+hispan_cells <- post_strat_cell_counts %>% # race props 
+  group_by(hispanic) %>%
+  summarise(n = sum(n)) %>%
+  ungroup() %>%
+    rename(level  =  hispanic) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+
+education_cells <- post_strat_cell_counts %>% # education props 
+  group_by(education_level) %>%
+  summarise(n = sum(n)) %>%
+  ungroup() %>%
+    rename(level  =  education_level) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = ""))
+income_cells <- post_strat_cell_counts %>% # income props 
+  group_by(household_income) %>%
+  summarise(n = sum(n)) %>%
+  ungroup() %>%
+    rename(level  =  household_income) %>% 
+  mutate(prop = paste(round(n/sum(n)*100), "%", sep = "")) %>%
+  filter(!is.na(level))
+cell_table <- rbind(age_cells, sex_cells, race_cells, hispan_cells, education_cells, income_cells) 
+# creating labels for table 
+tables$variable <- c(rep("Age", 4), rep("Sex", 2), rep("Race", 4),rep("Hispanic", 2), rep("Education",4 ), rep("Income", 6))
+cell_table$variable <-  c(rep("Age", 4), rep("Sex", 2), rep("Race", 4),rep("Hispanic", 2), rep("Education",4 ), rep("Income", 6))
+
+tables %>%
+  left_join(cell_table, by = c("level")) %>%      # joining nationscape and ACS proportion tables 
+  dplyr::select(level, n.x, prop.x, prop.y) %>%      # selecting variables, number of respondents from nationscape, props from nationscape + ACS 
+  rename(n = n.x, Nationscape = prop.x, ACS = prop.y, Variable = level) %>% 
+  kbl(caption = "Comparison of Nationscape (Survey Data) and ACS Demographics (Postratification Data)", align = c("lrr")) %>%
+  column_spec(3, width = "5em", color = c(rep("black", 12))) %>%
+  column_spec(4, color = c(rep("black", 11))) %>%  # highlighting notable differences in red 
+  pack_rows("Age Group", 1, 4) %>%
+  pack_rows("Sex", 5, 6) %>%
+  pack_rows("Race", 7, 10) %>%
+  pack_rows("Hispanic", 11, 12) %>%
+  pack_rows("Education", 13, 15) %>%
+  pack_rows("Income", 16, 22) %>%
+  kable_styling(latex_options = c("condensed", "HOLD_position")) 
+```
+
+Another dataset used in our analysis is the post-stratification data which is derived from the 2019 American Community Survey [@poststratdata], which is a large random sample which will help us weigh the cells during prediction to better approximate the sentiments of the American people. A comparison of the differences between our survey data (non-representative) and post-stratification data are shown in Table \@ref(tab:tableco) where it can be observed that there are certainly differences between the two samples. Specifically, there is roughly a 10% difference between both male and female respondents across both surveys with approximately 10% difference also emerging in the respondents with high-school education or lower or post-secondary education or higher. Finally, another major difference across both surveys is revealed in respondents who have a household income below \$50,000.
 
 # Model
 
-\begin{equation}
-Pr(\theta | y) = \frac{Pr(y | \theta) Pr(\theta)}{Pr(y)}  (\#eq:bayes)
-\end{equation}
+```{r model, include=FALSE}
 
-Equation \@ref(eq:bayes) seems useful, eh?
+model_simple = glm(vote_biden ~ gender + age_group + (stateicp) + (education_level)+ (race) + hispanic + (race:hispanic)+ (household_income),
+                     data=nationscape_data,)
 
-Here's a dumb example of how to use some references: In paper we run our analysis in `R` [@citeR]. We also use the `tidyverse` which was written by @thereferencecanbewhatever If we were interested in baseball data then @citeLahman could be useful. 
+```
 
-We can use maths by including latex between dollar signs, for instance $\theta$.
+```{r bs2, fig.cap="tables", echo = FALSE, fig.height = 10, fig.width = 15 }
+
+knitr::kable(broom::tidy(model_simple, conf.int = T),
+             caption = "Coefficients from the Model",
+             digits = 2) %>% 
+  kableExtra::kable_styling(latex_options = "scale_down") %>%
+  kable_styling(font_size = 5)
+
+
+```
+
+```{r modelplot, fig.cap="Graph of model coefficients with their respective confidence intervals", echo = FALSE, fig.height = 15, fig.width = 12}
+plot_model(model_simple)+
+  labs(title = "Model Coefficients for Respective Variables") +    theme(plot.title = element_text(hjust = 0.5),
+         axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+         text = element_text(family = "Avenir", size = 15))
+```
+
+To model the election outcome we employ multilevel regression with post-stratification (MRP) which has been shown to be a powerful tool to examine state and individual differences across populations. As explained in @kennedy_gelman, MRP can come in handy when we have two datasets with the goal of investigating common variables across both. In our particular case, we use the aforementioned Nationscape survey data to train our model, and then post-stratify our model using the IPUMS Census data. The model used is a logistic regression model that outputs 0 or 1 to predict if the vote is for Donald Trump or Joe Biden respectively. We use @citeR programming language to fit our model which takes the following mathematical form,
+
+```{=tex}
+\begin{align} 
+  \log\bigg(\frac{\hat{p}}{1 - \hat{p}}\bigg) &= \beta_{0} + \beta_{1}x_{\text{sex}} + 
+\beta_{2}x_{\text{agegroup}} + \beta_{3}x_{\text{race}} +  \beta_{4}x_{\text{state}} + \beta_{5}x_{\text{education}} + \beta_{6}x_{\text{hispanic}} 
+\\ &+\beta_{7}x_{\text{household income}} + \beta_{8}x_{\text{race}}*x_{\text{hispanic}} \tag{1} 
+\end{align}
+```
+A central use of our model will be to predict future likelihood of voting for Biden for different voters which is denoted by $p$ in Equation 1. Furthermore, each $\beta_i$ indicates a coefficient estimate for each respective variable. We also incorporate an interaction term based on the high influence of hispanic and racial identities observed in our survey data as seen in Figures  \@ref(fig:voteg5) and  \@ref(fig:voteg6). This term can be simply thought of as a variable that accounts for additional black-hispanic, asian-hispanic and otherrace-hispanic identities. We should also note that this model is limited due to it simply being binary and also not considering individual level differences in race and gender which can be accounted by a more Bayesian approach. Furthermore, a more sophisticated but simple mixed model can also come in handy to incorporate state-level or individual-level differences. The model is fitted using R programming language [@citeR] and the model coefficient estimates are outlined in Table \@ref(tab:bs2) with each estimate visualized alongwith the 95% confidence interval in Figure \@ref(fig:modelplot).
+
+
 
 
 # Results
 
+
+Inference based on post-stratification data from our MRP model reveals an expected 51% $\pm$ 6% chance of a majority vote with 274 electoral college votes on average in favor of Joe Biden designating a clear victory for Joe Biden across both fronts. It is important to note here that in 2016 Donald Trump became president based on the electoral college win (votes above 270) which plays a major role in the US electoral process.
+
+```{r}
+
+# generate prediction
+poststrat_data_cells2=poststrat_data_cells
+poststrat_data_cells$estimate <- predict.glm(model_simple, newdata = poststrat_data_cells,
+                          type = "response")
+# number of voters from each cell voting Biden
+poststrat_data_cells <- poststrat_data_cells %>% mutate(num_voters = n*estimate)
+# g errors for our prediction
+errors <- predict.glm(model_simple, newdata = poststrat_data_cells,
+                      type = "response", se.fit = T)
+lower <- errors$fit - errors$se.fit
+upper <- errors$fit + errors$se.fit
+# proportions and the errors we generated
+props_error <- cbind(poststrat_data_cells, lower, upper)
+
+# column with number of voters from each cell voting Biden
+props_error <- props_error %>% mutate(num_voters_lower = n*lower,
+                                num_voters_upper = n*upper)
+# upper and lower estimates for proportions
+# of votes for each state
+voting_biden <- props_error %>% mutate(biden_predict_prop=estimate*prop,
+                                       biden_predict_prop_lower = lower*prop,
+                                       biden_predict_prop_upper = upper*prop) %>%
+  group_by(stateicp) %>%
+  summarise(biden_predict = sum(biden_predict_prop),
+            biden_predict_lower = sum(biden_predict_prop_lower),
+            biden_predict_upper = sum(biden_predict_prop_upper))
+
+
+
+```
+
+As seen in Figure \@ref(fig:bs) we observe that the proportion of people voting for Joe Biden and the predictions from our MRP model align closely, with most values overlapping or lying within the 95% confidence intervals as denoted by the error bars. It should be noted that there are a few incorrect predictions by our model that can certainly effect the overall outcome of the election and some that do not overlap or resonate with our training data.
+
+```{r bs, fig.cap="State-wise Percentage of Voters for Joe Biden", fig.height =4, fig.width = 8, echo = FALSE}
+# get state by state proportions for our polling data
+polling<-nationscape_data
+polling_props <- polling %>% 
+  group_by(stateicp, vote_biden) %>% 
+  summarise(n = n()) %>% 
+  mutate(prop = n/sum(n)) 
+# combine the polling data proportions with the post-stratification data
+poll_post_biden <- inner_join(polling_props, voting_biden, by = "stateicp")
+poll_post_biden <- poll_post_biden %>% 
+  filter(vote_biden == 1)
+# plot for predictions
+poll_post_biden %>% 
+  ggplot(aes(x = stateicp, y = biden_predict)) +
+  geom_point(aes(color = "black")) +
+  geom_line(aes(group = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  theme(axis.text.x = element_text(angle = 70, size = 6, hjust = 1)) +
+  geom_ribbon(aes(group = 1, ymin=biden_predict_lower, ymax=biden_predict_upper), 
+              alpha = 0.2, fill = mycols[2]) +
+  geom_line(data = poll_post_biden, aes(x=stateicp, y=prop, group = 2), 
+            linetype = "twodash") +
+  geom_point(data = poll_post_biden, aes(x=stateicp, y=prop, colour = "red")) +
+  geom_hline(aes(yintercept = 0.5), alpha = 0.5) +
+  scale_color_discrete(name = "Data", labels = c("Population", "Sample")) +
+  labs(title = "State-wise Percentage of Voters for Joe Biden",
+       x = "State", y = "Percentage")+    theme(plot.title = element_text(hjust = 0.5),
+         axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+         text = element_text(family = "Avenir", size = 10))
+
+```
+
+```{r votingscales, echo=F, message=F, warning=F, fig.cap="2020 Percentage of Voters by State" , fig.height =4, fig.width = 8,}
+# arrange our proportions for each state in descending order
+stateprops_plot <- poll_post_biden %>% arrange(desc(biden_predict)) %>% 
+  mutate(support = ifelse(biden_predict >= 0.5, "Biden", "Trump"))
+# plot the results, with a line on 50% because of the electoral college
+stateprops_plot %>% ggplot(aes(y = reorder(stateicp, biden_predict), x = biden_predict, 
+                               color = support)) +
+  geom_point(stat = "identity") +
+  geom_errorbar(aes(xmin = biden_predict_lower, xmax = biden_predict_upper)) +
+  geom_vline(xintercept = 0.5, linetype = "dashed") +
+  labs(title = "Estimated Percentage of Voters",
+       x = "Percentage", y= "State",
+       color = "Support") +
+  scale_x_continuous(labels = scales::percent) +
+  theme(axis.text.y = element_text(size = 5)) +
+  scale_color_manual(values = mycols)+    theme(plot.title = element_text(hjust = 0.5),
+         axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+         text = element_text(family = "Avenir", size = 10))
+```
+
+Finally we show using Figure \@ref(fig:votingscales) a more clearer picture of the voting outcomes for each states with some states clearly being in the democratic majority and some in the conservative. \newpage
+
+```{r colleges,   out.width = "50%"}
+# merge our electoral college data with predictions from model
+elec_college <- read_csv("data/electoral_colleges.csv")
+states_biden_prop <- voting_biden %>%
+  rename("State" = stateicp)
+elec_college$State = tolower(elec_college$State)
+states_college <- merge(x=elec_college,y=states_biden_prop,by="State",all.x=FALSE, all.y=FALSE)
+# create new variables finding the upper, lower and mean prediction for number of colleges
+
+
+# create new variables finding the upper, lower and mean prediction for number of colleges
+states_college <- states_college %>% 
+  mutate(biden_colleges = case_when(
+    State == "nebraska" ~ round(biden_predict*Number_of_colleges),
+    State == "maine" ~ round(biden_predict*Number_of_colleges),
+    State != "maine" | State != "nebraska" ~ ifelse(biden_predict >= 0.5, Number_of_colleges, 0)
+  ),
+  biden_colleges_lower = case_when(
+    State == "nebraska" ~ round(biden_predict_lower*Number_of_colleges),
+    State == "maine" ~ round(biden_predict_lower*Number_of_colleges),
+    State != "maine" | State != "nebraska" ~ ifelse(biden_predict_lower >= 0.5, Number_of_colleges, 0)),
+  biden_colleges_upper = case_when(
+    State == "nebraska" ~ round(biden_predict_upper*Number_of_colleges),
+    State == "maine" ~ round(biden_predict_upper*Number_of_colleges),
+    State != "maine" | State != "nebraska" ~ ifelse(biden_predict_upper >= 0.5, Number_of_colleges, 0)))
+
+# compile upper, lower and mean number of colleges won, plus proportion of popular vote 
+biden_upper <- c(round(sum(states_college$biden_colleges_upper)), 
+                 (round(100*sum(props_error$num_voters_upper)/sum(props_error$n),1)))
+biden_mid <- c(round(sum(states_college$biden_colleges)), 
+                 (round(100*sum(props_error$num_voters)/sum(props_error$n), 1)))
+biden_lower <- c(round(sum(states_college$biden_colleges_lower)), 
+                 (round(100*sum(props_error$num_voters_lower)/sum(props_error$n), 1)))
+# create a dataframe with all three estimates and create a table displaying the estimates
+estimates <- tibble("Lower Estimate" = biden_lower, "Mean Estimate" = biden_mid, "Upper Estimate" = biden_upper)
+rownames(estimates) <- c("Number of Colleges", "Proportion of Vote (%)")
+kable(estimates, caption = "Estimated Percentage of Biden Voters",
+      digits = 0) %>% 
+  kable_styling(latex_options = "scale_down") %>%
+  kable_styling(font_size = 5)
+
+```
+
+
+
+\newpage
+
 # Discussion
 
-## First discussion point
-
-If my paper were 10 pages, then should be be at least 2.5 pages. The discussion is a chance to show off what you know and what you learnt from all this. 
-
-## Second discussion point
-
-## Third discussion point
-
-## Weaknesses and next steps
-
-Weaknesses and next steps should also be included.
-
-\newpage
-
-\appendix
-
-# Appendix {-}
 
 
-# Additional details
+The results from our paper demonstrate that our model predicts a victory for Democratic presidential candidate Joe Biden, with a close call between the votes. Based on Table 3 it can be observed that our model predicts an expected 51% +-6% chance of a majority vote and 274 electoral college votes for Joe Biden designating a clear victory for the Democratic presidential nominee across both fronts. Furthermore, based on the estimated proportions for every state, it seems like the swing states that can completely alter this close election outcome are Virginia, Wisconsin, Iowa, and Montana which lie quite close to the 50% reference threshold.  The model seems to also accurately capture the effect of different age groups and races based on the coefficient estimates seen in Table 2 and observed in Figure 6. This is consistent with our preliminary findings based on survey data in Section 2.2.  
 
+Another consistent and common trend observed through our model coefficients is that men are more likely to vote for Donald Trump as compared to women as shown in Table 2. Furthermore, we notice an almost consistent voting pattern for different age groups.  There are a few states which do not contribute significantly to the model predictions and therefore there is some uncertainty surrounding those state predictions. These states have a high $p$ value in Table 2, some of which are Kentucky, Louisiana, and Oklahoma. Our findings also show that throughout both survey data and our model estimates, different income brackets largely share the same political ideologies. In terms of our model, only the lowest income households have minor statistical significance in contributing to the predictions. 
 
-\newpage
+Through this analysis, a major finding is that race and Hispanic identity are significant drivers of polling behavior. Our model captures this intricate behavior through an added interaction effect between the two variables towards the end, to help capture identities like black-Hispanic and Asian-Hispanic for prediction. It should further be noted that while our model is simple, it can be further improved by further hierarchical multilevel modeling approaches that account for these individual-level differences in a more Bayesian fashion by placing a prior over their assumed values. Furthermore, we need to note that there are several other extraneous variables at play that can certainly significantly impact the election output.
 
+During the months leading up to the election, USA was hit by the COVID-19 pandemic which has further polarised public opinion and is not captured by the surveys used for model training which is another limitation of our study. Several metrics like the social distancing policies and COVID-19 restrictions in different states have shown to be correlated with political ideology and can be major drivers of election behavior during the 2020 season. There is also the important consideration we need to keep in mind of our model over-fitting to the data we have, making it hard to use the model to draw repeated or regular inferences at regular intervals in time to make predictions. This would make the model limited in its usefulness as ideally, such models should be robust enough to be deployed in systems for weekly, monthly, or bi-weekly predictions on election outcomes and voter sentiment.
+
+ Such issues can be addressed by using better training techniques and also model comparison techniques. A likelihood ratio test or Analysis of Variance tests (ANOVA) should certainly be used to compare candidate models in such a scenario to determine which variables are useful and which are not. A more granular understanding of data can also be obtained if we use a multiple logistic regression model (multi-class classification) to account for other candidates within the election cycle. Future work can perhaps incorporate COVID-19 data into this analysis to examine the effect of the pandemic on partisanship. There can also be studies carried out focused on examining the data before and after the election, particulary after the January 6 seige of the Capitol building by Trump supporters to see the changes in public perception.
 
 # References
-
-
